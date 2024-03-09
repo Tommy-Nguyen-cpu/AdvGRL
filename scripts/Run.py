@@ -4,11 +4,23 @@ from PIL import Image
 import numpy as np
 import requests
 from stable_baselines3 import PPO, A2C
+import gymnasium as gym
+from gymnasium.envs.registration import register
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.evaluation import evaluate_policy
 
 clf = ClipClassifier.CLIP_Classifier()
 
 # Create environment instance
-env = AdvGRL.AdvGRLEnv("./instant-ngp/NoObjectScene/Screenshots/0009.jpg", clf, "christmas tree", .4)
+env = AdvGRL.AdvGRLEnv("./AIArchPhotos/IMG_5616.jpg", clf, "payphone", .7)
+# Register the environment with Gymnasium
+# register(
+#     id="GRLEnv-v0",
+#     entry_point='AdvGRL:AdvGRLEnv',
+#     max_episode_steps=1000,
+# )
+# env = gym.make('GRLEnv-v0', OriginalImagePath="./AIArchPhotos/IMG_5616.jpg", pretrained_model=clf, target_class="christmas tree", noise_amount=1.4)
 
 def get_labels():
 
@@ -21,30 +33,54 @@ def get_labels():
     return labels
 
 def reward(predictions):
-    # TODO: Define reward function.
-    reward = -10
-    if predictions[1] == env.target:
-        reward = predictions[2] * 10
-    return reward
+  reward = 0
+  targetConf = 0
+
+  # Penalize agent for not predicting target class in top 1.
+  if predictions[0][1] != env.target:
+      reward -= 1
+  
+  # Encourage agent to produce noise for specific class.
+  for prediction in predictions:
+    if prediction[1] == env.target:
+      reward += prediction[2] * 10 # High reward for christmas tree with high confidence
+      targetConf = prediction[2]
+      break
+    # print("predicted: " + str(prediction))
+
+  reward -= .0001 # Penalize agent for each step.
+  return reward, targetConf
+
 
 def step(action):
+    # print("action mean: " + str(action.mean()))
+    # print("action std: " + str(action.std()))
 
-    noise = (action.squeeze() * np.random.normal(scale=env.noiseAmount, size=env.action_space.shape)).astype(np.uint8)
+    # action = action * 125.5
+
+    noise = (action *  env.np_random.uniform(low=-env.noiseAmount, high=env.noiseAmount, size=env.action_space.shape)).astype(np.uint8)
+
     # Modify feature grid based on action
-    env.feature_grid +=  noise  # Apply action to feature grid
+    # env.feature_grid +=  noise  # Apply action to feature grid
+    print("feature grid: " + str(env.feature_grid.mean()))
 
     # Saves image with noise.
-    Image.fromarray(env.feature_grid).save(env.adv_output)
+    Image.fromarray(env.feature_grid + noise).save(env.adv_output)
 
     # Save image of just the noise.
     Image.fromarray(noise).save(env.adv_noise_output)
 
+
+
     # Classify image using CLIP
-    decoded_prediction = env.model.predict(env.adv_noise_output, get_labels(), top=1)[0]
-    print("predicted: " + str(decoded_prediction))
+    decoded_prediction = env.model.predict(env.adv_output, get_labels(), top=1001)
+
+    print("predicted: " + str(decoded_prediction[0]))
 
     # Calculate reward based on adversarial success and image quality
-    reward = env.get_reward(decoded_prediction)  # Implement reward function
+    reward, targetConf = env.get_reward(decoded_prediction)  # Implement reward function
+
+    print("reward: " + str(reward))
 
     # Determine if episode is done
     done = False
@@ -62,27 +98,42 @@ def step(action):
 
     info = {
         "Target" : env.target,
-        "Predicted" : decoded_prediction[1],
-        "Confidence" : decoded_prediction[2]
+        "Predicted" : decoded_prediction[0][1],
+        "Confidence" : decoded_prediction[0][2]
     }
 
-    return env.feature_grid, reward, done, truncated, info
+    return {"image":env.feature_grid + noise,
+            "confidence":np.array([targetConf])}, reward, done, truncated, info
 
 
-env.set_functions(reward, step)
+env.set_my_functions(reward, step)
+# env = DummyVecEnv([lambda: env])
 
-# Create RL agent
-model = PPO('MlpPolicy', env, device='cuda')
 
 def train_agent():
+    temperature = 1.0
+    # Create RL agent
+    model = PPO('MultiInputPolicy', env, device='cuda')
+    # print("Model activated...")
+
     episode_reward = 0
     obs, info = env.reset()
     _states = None
-
     max_epochs = 0
+
+    # model.learn(total_timesteps=10000)
     while True:
-        action, _states = model.predict(obs, _states)
+        # Controls exploration vs exploitation.
+        if np.random.random() < temperature:
+            # print("Exploring!")
+            action = model.action_space.sample()
+        else:
+            action, _states = model.predict(obs, _states)
+
+        temperature -= .001
+
         obs, reward, done, truncated, info = env.step(action)
+        # model = model.learn(total_timesteps=1, log_interval=4)
         episode_reward += reward
         print("Current episode reward: " + str(episode_reward))
 
@@ -91,16 +142,13 @@ def train_agent():
             break
 
         # Resets the environment if it has been 100 iterations and we still haven't reached the target class.
-        if max_epochs > 100 and info['Predicted'] != info['Target']:
+        if (max_epochs > 10000 and info['Predicted'] != info['Target'] ) or info['Predicted'] == info['Target']:
             print("resetting environment...")
             obs, info = env.reset()
             max_epochs = 0
             episode_reward = 0
             _states = None
-        
-        # If we reached the target class, reset iteration counter.
-        elif info['Predicted'] == info['Target']:
-            max_epochs = 0
+            temperature = 1.0
 
         max_epochs += 1
 

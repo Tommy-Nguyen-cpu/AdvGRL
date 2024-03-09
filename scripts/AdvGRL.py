@@ -16,7 +16,7 @@ class AdvGRLEnv(gym.Env):
         self.original_img_path = OriginalImagePath
         self.adv_output = output_img_path
         self.adv_noise_output = output_img_noise_path
-        self.feature_grid = np.array(Image.open(OriginalImagePath))
+        self.feature_grid = np.array(Image.open(OriginalImagePath).resize((1080,1080)))
         self.log = open(logPath, 'a')
 
 
@@ -25,18 +25,23 @@ class AdvGRLEnv(gym.Env):
         self.noiseAmount = noise_amount
         self.max_reward = -np.inf
 
-        self.state = 38 + random.randint(-3,3)
+        self.min_perturb = 0
+        self.max_perturb = 255
 
         # Define action and observation spaces
-        self.action_space = spaces.Box(low=0, high=255, shape=(image_shape), dtype=np.uint8)  # Define space of allowable feature grid modifications
-        self.observation_space = spaces.Box(low=0, high=255, shape=(image_shape), dtype=np.uint8) # Define state representation (e.g., feature grid, image)
+        self.action_space = spaces.Box(low=self.min_perturb, high=self.max_perturb, shape=(image_shape), dtype=np.uint8)  # Define space of allowable feature grid modifications
+        self.observation_space = self.observation_space = spaces.Dict({
+            "image": spaces.Box(low=0, high=255, shape=(image_shape), dtype=np.uint8),
+            "confidence": spaces.Box(low=0.0, high=1.0, dtype=np.float32),
+        }) # Define state representation (e.g., feature grid, image)
 
-    def reset(self, seed=0):
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Reset feature grid or load new one
-        self.feature_grid = np.array(Image.open(self.original_img_path))
+        self.feature_grid = np.array(Image.open(self.original_img_path).resize((1080,1080)))  # (np.array(Image.open(self.original_img_path).resize((1080,1080))) *  self.np_random.normal(scale=self.noiseAmount, size=self.action_space.shape)).astype(np.uint8)
         # self.log.close()
-        return (self.feature_grid, {})
+        return ({"image": self.feature_grid,
+                 "confidence": np.array([0.0])}, {})
     
     def render(self):
         pass
@@ -45,7 +50,7 @@ class AdvGRLEnv(gym.Env):
         self.log.close()
 
 
-    def set_functions(self, reward_function, step_function):
+    def set_my_functions(self, reward_function, step_function):
         self.get_reward = reward_function
         self.step = step_function
     
