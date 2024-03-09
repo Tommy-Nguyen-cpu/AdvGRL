@@ -18,6 +18,7 @@ class AdvGRLEnv(gym.Env):
         self.adv_noise_output = output_img_noise_path
         self.feature_grid = np.array(Image.open(OriginalImagePath).resize((1080,1080)))
         self.log = open(logPath, 'a')
+        self.min_cof = .1
 
 
         self.model = pretrained_model  # Load CLIP model
@@ -30,18 +31,14 @@ class AdvGRLEnv(gym.Env):
 
         # Define action and observation spaces
         self.action_space = spaces.Box(low=self.min_perturb, high=self.max_perturb, shape=(image_shape), dtype=np.uint8)  # Define space of allowable feature grid modifications
-        self.observation_space = self.observation_space = spaces.Dict({
-            "image": spaces.Box(low=0, high=255, shape=(image_shape), dtype=np.uint8),
-            "confidence": spaces.Box(low=0.0, high=1.0, dtype=np.float32),
-        }) # Define state representation (e.g., feature grid, image)
+        self.observation_space = spaces.Box(low=0, high=255, shape=(image_shape), dtype=np.uint8) # Define state representation (e.g., feature grid, image)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Reset feature grid or load new one
         self.feature_grid = np.array(Image.open(self.original_img_path).resize((1080,1080)))  # (np.array(Image.open(self.original_img_path).resize((1080,1080))) *  self.np_random.normal(scale=self.noiseAmount, size=self.action_space.shape)).astype(np.uint8)
         # self.log.close()
-        return ({"image": self.feature_grid,
-                 "confidence": np.array([0.0])}, {})
+        return (self.feature_grid, {})
     
     def render(self):
         pass

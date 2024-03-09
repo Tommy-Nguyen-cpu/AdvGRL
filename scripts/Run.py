@@ -9,18 +9,13 @@ from gymnasium.envs.registration import register
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.callbacks import CheckpointCallback
 
 clf = ClipClassifier.CLIP_Classifier()
 
 # Create environment instance
-env = AdvGRL.AdvGRLEnv("./AIArchPhotos/IMG_5616.jpg", clf, "payphone", .7)
-# Register the environment with Gymnasium
-# register(
-#     id="GRLEnv-v0",
-#     entry_point='AdvGRL:AdvGRLEnv',
-#     max_episode_steps=1000,
-# )
-# env = gym.make('GRLEnv-v0', OriginalImagePath="./AIArchPhotos/IMG_5616.jpg", pretrained_model=clf, target_class="christmas tree", noise_amount=1.4)
+env = AdvGRL.AdvGRLEnv("./AIArchPhotos/IMG_5616.jpg", clf, "payphone", .05)
+
 
 def get_labels():
 
@@ -56,16 +51,16 @@ def step(action):
     # print("action mean: " + str(action.mean()))
     # print("action std: " + str(action.std()))
 
-    # action = action * 125.5
+    action = action * 125.5
 
-    noise = (action *  env.np_random.uniform(low=-env.noiseAmount, high=env.noiseAmount, size=env.action_space.shape)).astype(np.uint8)
+    noise = (action *  env.np_random.uniform(low=0, high=env.noiseAmount, size=env.action_space.shape)).astype(np.uint8)
 
     # Modify feature grid based on action
-    # env.feature_grid +=  noise  # Apply action to feature grid
-    print("feature grid: " + str(env.feature_grid.mean()))
+    env.feature_grid +=  noise  # Apply action to feature grid
+    # print("feature grid: " + str(env.feature_grid.mean()))
 
     # Saves image with noise.
-    Image.fromarray(env.feature_grid + noise).save(env.adv_output)
+    Image.fromarray(env.feature_grid).save(env.adv_output)
 
     # Save image of just the noise.
     Image.fromarray(noise).save(env.adv_noise_output)
@@ -83,7 +78,12 @@ def step(action):
     print("reward: " + str(reward))
 
     # Determine if episode is done
-    done = False
+    done = True if targetConf > env.min_cof and reward > 0 else False
+
+    if done == True:
+       if env.min_cof < .7:
+            env.min_cof += .05
+       print("RESETTING ENVIRONMENT")
 
     truncated, info = False, {}
     
@@ -102,54 +102,59 @@ def step(action):
         "Confidence" : decoded_prediction[0][2]
     }
 
-    return {"image":env.feature_grid + noise,
-            "confidence":np.array([targetConf])}, reward, done, truncated, info
+    return env.feature_grid, reward, done, truncated, info
 
 
 env.set_my_functions(reward, step)
-# env = DummyVecEnv([lambda: env])
 
 
 def train_agent():
     temperature = 1.0
     # Create RL agent
-    model = PPO('MultiInputPolicy', env, device='cuda')
+    model = PPO('CnnPolicy', env, gamma=0.999)
     # print("Model activated...")
 
-    episode_reward = 0
-    obs, info = env.reset()
-    _states = None
-    max_epochs = 0
+    checkpoint_callback = CheckpointCallback(save_freq=100, save_path=".",
+                                     name_prefix='adv_results')
+    for i in range(100):
+       model.learn(total_timesteps=5)
+       print("Done with one learn session.")
+    
+    # TODO: Try running it with multiple agents, figure out how our step and reward function will access necessary parameters.
 
-    # model.learn(total_timesteps=10000)
-    while True:
-        # Controls exploration vs exploitation.
-        if np.random.random() < temperature:
-            # print("Exploring!")
-            action = model.action_space.sample()
-        else:
-            action, _states = model.predict(obs, _states)
+    # episode_reward = 0
+    # obs, info = env.reset()
+    # _states = None
+    # max_epochs = 0
 
-        temperature -= .001
+    # while True:
+    #     # Controls exploration vs exploitation.
+    #     if np.random.random() < temperature:
+    #         # print("Exploring!")
+    #         action = model.action_space.sample()
+    #     else:
+    #         action, _states = model.predict(obs, _states)
 
-        obs, reward, done, truncated, info = env.step(action)
-        # model = model.learn(total_timesteps=1, log_interval=4)
-        episode_reward += reward
-        print("Current episode reward: " + str(episode_reward))
+    #     temperature -= .001
 
-        if info['Target'] == info['Predicted'] and info['Confidence'] > .6:
-            print("Episode reward:", episode_reward)
-            break
+    #     obs, reward, done, truncated, info = env.step(action)
+    #     # model = model.learn(total_timesteps=1, log_interval=4)
+    #     episode_reward += reward
+    #     print("Current episode reward: " + str(episode_reward))
 
-        # Resets the environment if it has been 100 iterations and we still haven't reached the target class.
-        if (max_epochs > 10000 and info['Predicted'] != info['Target'] ) or info['Predicted'] == info['Target']:
-            print("resetting environment...")
-            obs, info = env.reset()
-            max_epochs = 0
-            episode_reward = 0
-            _states = None
-            temperature = 1.0
+    #     if info['Target'] == info['Predicted'] and info['Confidence'] > .6:
+    #         print("Episode reward:", episode_reward)
+    #         break
 
-        max_epochs += 1
+    #     # Resets the environment if it has been 100 iterations and we still haven't reached the target class.
+    #     if (max_epochs > 10000 and info['Predicted'] != info['Target'] ) or (info['Predicted'] == info['Target'] and info['Confidence'] > .5):
+    #         print("resetting environment...")
+    #         obs, info = env.reset()
+    #         max_epochs = 0
+    #         episode_reward = 0
+    #         _states = None
+    #         temperature = 1.0
+
+    #     max_epochs += 1
 
 train_agent()
