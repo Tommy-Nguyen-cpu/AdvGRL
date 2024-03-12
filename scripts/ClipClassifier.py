@@ -14,6 +14,7 @@ class CLIP_Classifier:
         image = Image.open(image_path)
         image_input = self.preprocess(image).unsqueeze(0).to(self.device)
         text_inputs = torch.cat([clip.tokenize(f"a photo of a {c}") for c in classes]).to(self.device)
+        image.close()
 
         if top > len(classes):
             print("The number of top predictions you want is higher than the number of classes provided.")
