@@ -6,8 +6,10 @@ pybind11
 pyquaternion
 scipy
 tqdm
-gym
-PIL
+gymnasium
+Pillow
+requests
 skimage
 stable-baselines3
 torchvision
+torch
