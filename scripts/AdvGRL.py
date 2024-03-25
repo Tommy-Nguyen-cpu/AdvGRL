@@ -16,7 +16,6 @@ class AdvGRLEnv(gym.Env):
         self.adv_output = output_img_path
         self.adv_noise_output = output_img_noise_path
         self.feature_grid = np.array(Image.open(OriginalImagePath).resize((1080,1080)))
-        self.log = open(logPath, 'a')
         self.min_cof = .01
 
 
@@ -24,7 +23,6 @@ class AdvGRLEnv(gym.Env):
         self.target = target_class
         self.noiseAmount = noise_amount
         self.noise_space = None
-        self.max_reward = -np.inf
         self.epochs = 0
 
         self.min_perturb = 0
@@ -37,18 +35,18 @@ class AdvGRLEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # Reset feature grid or load new one
-        self.noise_space = self.np_random.normal(scale=self.noiseAmount, size=self.action_space.shape)
+        # self.noise_space = self.np_random.normal(scale=self.noiseAmount, size=self.action_space.shape)
         new_image = Image.open(self.original_img_path).resize((1080,1080))
-        self.feature_grid = (np.array(new_image) *  self.noise_space).astype(np.uint8)
+        self.feature_grid = (np.array(new_image)).astype(np.uint8)
         new_image.close()
-        # self.log.close()
+
         return (self.feature_grid, {})
     
     def render(self):
         pass
 
     def close(self):
-        self.log.close()
+        pass
 
     def get_labels(self):
 
@@ -63,24 +61,3 @@ class AdvGRLEnv(gym.Env):
     def set_my_functions(self, reward_function, step_function):
         self.get_reward = reward_function
         self.step = step_function
-    
-    def get_target(self):
-        return self.target
-
-    def get_observation(self):
-        return self.feature_grid
-    
-    def get_og_path(self):
-        return self.original_img_path
-    
-    def get_adv_img_path(self):
-        return self.adv_output
-    
-    def get_adv_noise(self):
-        return self.adv_noise_output
-    
-    def get_classifier(self):
-        return self.model
-    
-    def get_action_space_shape(self):
-        return self.action_space.shape
